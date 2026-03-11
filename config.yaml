@@ -1,0 +1,202 @@
+# =============================================================================
+# 2단계 퀀트 리스크 관리 시스템 — 설정 파일
+# =============================================================================
+
+# 데이터 수집 설정
+data:
+  lookback_days: 250          # 최대 과거 데이터 기간 (영업일)
+
+# -----------------------------------------------------------------------------
+# 1단계: 하락장 조기탐지
+# -----------------------------------------------------------------------------
+stage1:
+  vix_warning: 20
+  vix_danger: 25
+  vix_extreme: 30
+
+  death_cross_sma_short: 50
+  death_cross_sma_long: 200
+
+  yield_curve_ticker_10y: "^TNX"
+  yield_curve_ticker_3m: "^IRX"
+
+  spy_sma_period: 200
+
+  uup_period: 20
+  uup_threshold: 0.02
+
+  hy_spread_period: 20
+  market_breadth_period: 20
+  small_cap_period: 20
+  co_decline_period: 20
+
+  bond_vol_period: 20
+  bond_vol_threshold: 0.015
+
+  # Level 판정 기준 (합산 점수)
+  levels:
+    level_1_min: 3
+    level_2_min: 5
+    level_3_min: 7
+    level_4_min: 9
+
+# -----------------------------------------------------------------------------
+# 2단계: 섹터 로테이션 탐지
+# -----------------------------------------------------------------------------
+stage2:
+  rotation_pairs:
+    - numerator: VUG
+      denominator: VTV
+      label: "성장→가치"
+    - numerator: XLK
+      denominator: XLP
+      label: "테크→방어"
+    - numerator: SPY
+      denominator: TLT
+      label: "위험→안전"
+    - numerator: XLY
+      denominator: XLU
+      label: "사이클→방어"
+
+  rotation_period: 20
+  rotation_threshold: -0.03
+
+  leading_indicators:
+    - ticker: GLD
+      label: "금"
+      signal: positive
+    - ticker: BTC-USD
+      label: "비트코인"
+      signal: negative
+    - ticker: SMH
+      reference: SPY
+      label: "반도체/SPY"
+      signal: negative
+
+  leading_period: 7
+
+# -----------------------------------------------------------------------------
+# 자동 대응
+# -----------------------------------------------------------------------------
+action:
+  stop_loss_pct: -0.10
+  defense_allocation: 0.5
+  cash_allocation: 0.5
+
+  defense_etfs:
+    individual: [WMT, BRK-B, PG, JNJ]
+    sector: [XLP, SCHD]
+    bond: [SHY, IEF, TLT]
+    alternative: [DBC]
+
+  response_rules:
+    stage1_level4: "전량 매도 권고"
+    stage2_level4: "성장주 전량 매도 + 방어 ETF 전환 + 신규 매수 차단"
+    stage2_level3: "성장주 전량 매도 + 방어 ETF 50% 전환 + 신규 매수 차단"
+    stage2_level2: "성장주 비중 축소 권고"
+    stage2_level1: "모니터링 강화"
+
+# -----------------------------------------------------------------------------
+# 포트폴리오 (보유종목 — 사용자가 직접 관리)
+# -----------------------------------------------------------------------------
+portfolio:
+  holdings: []
+
+# =============================================================================
+# V2: Quant Risk Engine Upgrade
+# =============================================================================
+
+# FRED API (환경 변수 FRED_API_KEY 사용 권장)
+fred:
+  api_key: ""  # 환경 변수 FRED_API_KEY가 우선 적용됩니다
+
+# V2 데이터 수집 — 추가 티커
+v2_data:
+  tickers:
+    equity: [SPY, QQQ, IWM, RSP]
+    sector_etfs: [XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLU, XLB, XLRE]
+    volatility: ["^VIX", "^VIX3M"]
+    bond: ["^TNX", "^FVX", TLT, SHY, IEF, HYG, LQD]
+    commodity: [GLD, "CL=F", DBC]
+    dollar: [UUP, "DX-Y.NYB"]
+    crypto: [BTC-USD]
+    growth_value: [VUG, VTV]
+    semi: [SMH]
+
+  fred_series:
+    sofr: SOFR
+    effr: EFFR
+    cp_3m: DCPF3M
+    tbill_3m: DTB3
+    ted_rate: TEDRATE     # discontinued but try anyway
+    baml_hy: BAMLH0A0HYM2  # ICE BofA HY OAS
+
+# -----------------------------------------------------------------------------
+# V2 과업 1: Market Regime Detection
+# -----------------------------------------------------------------------------
+regime:
+  n_states: 4
+  labels: [Expansion, Inflation, Correction, "Liquidity Crisis"]
+  features:
+    - spy_return_20d
+    - vix_level
+    - yield_spread_10y5y  # ^TNX(10Y) - ^FVX(5Y), fallback: ^TNX - ^IRX(3M)
+    - credit_spread
+    - dollar_change_20d
+    - oil_change_20d
+  lookback_years: 5
+
+# -----------------------------------------------------------------------------
+# V2 과업 2~5: Signal Weights (과업 7 Aggregation)
+# -----------------------------------------------------------------------------
+risk_engine:
+  weights:
+    macro: 0.20
+    liquidity: 0.20
+    breadth: 0.15
+    volatility: 0.20
+    cross_asset: 0.15
+    regime: 0.10
+
+# -----------------------------------------------------------------------------
+# V2 과업 4: Volatility Regime 기준
+# -----------------------------------------------------------------------------
+volatility_regime:
+  percentiles:
+    low: 20
+    normal: 50
+    expansion: 80
+    crisis: 95
+
+# -----------------------------------------------------------------------------
+# V2 과업 6: Dynamic Position Sizing
+# -----------------------------------------------------------------------------
+position_sizing:
+  target_volatility: 0.12    # 12% 연간 목표 변동성
+  allocation_map:
+    - risk_max: 0.2
+      equity: 0.80
+      treasury: 0.10
+      gold: 0.05
+      cash: 0.05
+    - risk_max: 0.4
+      equity: 0.60
+      treasury: 0.15
+      gold: 0.10
+      cash: 0.15
+    - risk_max: 0.6
+      equity: 0.40
+      treasury: 0.20
+      gold: 0.15
+      cash: 0.25
+    - risk_max: 0.8
+      equity: 0.20
+      treasury: 0.25
+      gold: 0.20
+      cash: 0.35
+    - risk_max: 1.0
+      equity: 0.05
+      treasury: 0.20
+      gold: 0.20
+      cash: 0.55
+

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(SETX FRED_API_KEY \"c0251f79398205fac508e6f15c5c3e99\")",
+      "Bash(python tests/quick_test.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python tests/quick_test.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python main_v2.py --period 1y)",
+      "Bash(python:*)"
+    ]
+  }
+}
