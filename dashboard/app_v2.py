@@ -54,6 +54,13 @@ st.markdown("""<style>
 
 * { box-sizing: border-box; }
 
+/* Streamlit 기본 UI 숨김 */
+#MainMenu, header, footer { visibility: hidden; }
+.stDeployButton { display: none; }
+section[data-testid="stMain"] > div:first-child {
+    padding-top: 0.5rem !important;
+}
+
 .stApp {
     background-color: #08080c;
     background-image:
