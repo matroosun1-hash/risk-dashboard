@@ -91,6 +91,14 @@ All system parameters live in `config.yaml`:
 - Streamlit Cloud 배포: `dashboard/app_v2.py` 메인 파일로 설정
 - 배포 URL: https://appv2pythisfiledoesnotexistappurloptionalrisk-dashboard-buuvtz.streamlit.app/
 
+### 2026-03-12 — 후행성 개선: 속도 기반 선행 감지
+
+- `stage1/indicators.py` — `check_death_cross()`, `check_spy_below_200sma()` 수정
+- **방식**: 이탈 확정(score 1.0) 외에 수렴 속도가 빠를 때 선행 경고(score 0.5) 추가
+  - 갭이 3% 이내 + 10일간 수렴속도 > 임계값 → 0.5점 선행 경고
+  - 데스크로스: velocity < -1%/10d, SPY 200일선: velocity < -1.5%/10d
+- 테스트 결과: SPY 200일선 지표가 실시간으로 0.5 선행 경고 발동 확인 (675 → 655, 3% 이내)
+
 #### 트러블슈팅
 - `<meta>` + `<style>` 동시 사용 시 Streamlit이 `<style>` 제거 → `<meta>` 제거로 해결
 - HTML 4칸 들여쓰기 → Markdown 코드블록으로 인식 → 한 줄 문자열로 변경
