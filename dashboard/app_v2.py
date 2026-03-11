@@ -317,6 +317,7 @@ st.markdown(
 
 st.markdown(f'<p class="ts">DATA: {data_date} // 30MIN CACHE</p>', unsafe_allow_html=True)
 
-if st.button("🔄 새로고침", use_container_width=True):
-    st.cache_data.clear()
-    st.rerun()
+import time
+time.sleep(60)
+st.cache_data.clear()
+st.rerun()
