@@ -85,12 +85,18 @@ def check_vix(close: pd.DataFrame, warning: float = 20, danger: float = 25, extr
 
 def check_death_cross(close: pd.DataFrame, short_period: int = 50, long_period: int = 200) -> dict:
     """
-    지표 3: 데스크로스 (SPY 50일선 < 200일선)
+    지표 3: 데스크로스 (SPY 50일선 < 200일선) + 수렴 속도 선행 감지
+    - score 1.0: 데스크로스 확정 (50일 < 200일)
+    - score 0.5: 아직 크로스 전이지만 갭이 빠르게 좁혀지는 중 (선행 경고)
+    - score 0.0: 정상
     """
     try:
         spy = close["SPY"].dropna()
-        sma_short = _safe_last(get_sma(spy, short_period))
-        sma_long = _safe_last(get_sma(spy, long_period))
+        sma_short_series = get_sma(spy, short_period)
+        sma_long_series  = get_sma(spy, long_period)
+
+        sma_short = _safe_last(sma_short_series)
+        sma_long  = _safe_last(sma_long_series)
 
         if pd.isna(sma_short) or pd.isna(sma_long):
             return {
@@ -101,11 +107,28 @@ def check_death_cross(close: pd.DataFrame, short_period: int = 50, long_period: 
                 "sma_long": sma_long,
             }
 
-        triggered = sma_short < sma_long
+        # 현재 갭 (양수 = 정상, 음수 = 데스크로스)
+        gap_pct = (sma_short - sma_long) / sma_long
+
+        # 10일 전 갭 (속도 계산용)
+        velocity = 0.0
+        if len(sma_short_series.dropna()) > 10 and len(sma_long_series.dropna()) > 10:
+            s10 = sma_short_series.dropna().iloc[-10]
+            l10 = sma_long_series.dropna().iloc[-10]
+            gap_pct_10d = (s10 - l10) / l10
+            velocity = gap_pct - gap_pct_10d  # 음수 = 갭이 빠르게 줄어드는 중
+
+        if gap_pct < 0:
+            score, status = 1, "데스크로스 확정"
+        elif gap_pct < 0.03 and velocity < -0.01:
+            score, status = 0.5, f"데스크로스 접근 중 (10일 수렴속도: {velocity:.2%})"
+        else:
+            score, status = 0, "정상"
+
         return {
             "name": "데스크로스 (SPY)",
-            "score": 1 if triggered else 0,
-            "detail": f"50일선: {sma_short:.2f}, 200일선: {sma_long:.2f}",
+            "score": score,
+            "detail": f"50일선: {sma_short:.2f}, 200일선: {sma_long:.2f} | {status}",
             "sma_short": sma_short,
             "sma_long": sma_long,
         }
@@ -187,11 +210,15 @@ def check_hy_spread(close: pd.DataFrame, period: int = 20) -> dict:
 
 def check_spy_below_200sma(close: pd.DataFrame, sma_period: int = 200) -> dict:
     """
-    지표 6: SPY 200일선 이탈
+    지표 6: SPY 200일선 이탈 + 빠른 접근 선행 감지
+    - score 1.0: SPY가 200일선 하회
+    - score 0.5: 200일선 위이지만 빠르게 접근 중 (선행 경고)
+    - score 0.0: 정상
     """
     try:
         spy = close["SPY"].dropna()
-        sma200 = _safe_last(get_sma(spy, sma_period))
+        sma200_series = get_sma(spy, sma_period)
+        sma200  = _safe_last(sma200_series)
         current = _safe_last(spy)
 
         if pd.isna(sma200) or pd.isna(current):
@@ -203,12 +230,28 @@ def check_spy_below_200sma(close: pd.DataFrame, sma_period: int = 200) -> dict:
                 "sma200": sma200,
             }
 
-        triggered = current < sma200
-        pct_diff = (current / sma200 - 1)
+        # 현재 갭 (양수 = 200일선 위, 음수 = 이탈)
+        gap_pct = (current / sma200 - 1)
+
+        # 10일 전 갭 (속도 계산용)
+        velocity = 0.0
+        if len(spy) > 10 and len(sma200_series.dropna()) > 10:
+            prev_price = spy.iloc[-10]
+            prev_sma   = sma200_series.dropna().iloc[-10]
+            gap_pct_10d = (prev_price / prev_sma - 1)
+            velocity = gap_pct - gap_pct_10d  # 음수 = 200일선으로 빠르게 접근 중
+
+        if gap_pct < 0:
+            score, status = 1, "200일선 하회"
+        elif gap_pct < 0.03 and velocity < -0.015:
+            score, status = 0.5, f"200일선 빠르게 접근 중 (10일 속도: {velocity:.2%})"
+        else:
+            score, status = 0, "정상"
+
         return {
             "name": "SPY 200일선 이탈",
-            "score": 1 if triggered else 0,
-            "detail": f"SPY: {current:.2f}, 200SMA: {sma200:.2f} ({pct_diff:+.2%})",
+            "score": score,
+            "detail": f"SPY: {current:.2f}, 200SMA: {sma200:.2f} ({gap_pct:+.2%}) | {status}",
             "current": current,
             "sma200": sma200,
         }
