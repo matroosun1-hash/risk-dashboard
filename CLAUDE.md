@@ -99,6 +99,13 @@ All system parameters live in `config.yaml`:
   - 데스크로스: velocity < -1%/10d, SPY 200일선: velocity < -1.5%/10d
 - 테스트 결과: SPY 200일선 지표가 실시간으로 0.5 선행 경고 발동 확인 (675 → 655, 3% 이내)
 
+### 2026-03-12 — VIX 중복 반영 제거
+
+- `signals/macro.py` 수정: VIX 지표를 macro 점수 계산에서 제외
+- VIX는 `signals/volatility.py`에서 4개 서브지표(수준/VVIX/Term Structure/실현변동성)로 전담
+- 효과: 최종 스코어 0.474 → 0.432 (공포 신호 과잉 증폭 해소)
+- macro 점수 기준: 10점 만점 → 9점 만점 (VIX 1점 제외)
+
 ### 2026-03-12 — 백테스트 검증 완료
 
 - `tests/backtester.py` 전면 재작성
