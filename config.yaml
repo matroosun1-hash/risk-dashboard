@@ -122,6 +122,7 @@ v2_data:
     crypto: [BTC-USD]
     growth_value: [VUG, VTV]
     semi: [SMH]
+    global: [EEM, VEU, CPER]   # 글로벌 거시 신호용
 
   fred_series:
     sofr: SOFR
@@ -151,12 +152,13 @@ regime:
 # -----------------------------------------------------------------------------
 risk_engine:
   weights:
-    macro: 0.20
-    liquidity: 0.20
+    macro: 0.18
+    liquidity: 0.17
     breadth: 0.15
-    volatility: 0.20
-    cross_asset: 0.15
+    volatility: 0.18
+    cross_asset: 0.12
     regime: 0.10
+    global_macro: 0.10
 
 # -----------------------------------------------------------------------------
 # V2 과업 4: Volatility Regime 기준

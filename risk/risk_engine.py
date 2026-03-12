@@ -16,6 +16,7 @@ from signals.liquidity import calculate_liquidity_score
 from signals.breadth import calculate_breadth_score
 from signals.volatility import calculate_volatility_score
 from signals.cross_asset import calculate_cross_asset_score
+from signals.global_macro import calculate_global_macro_score
 from regime.regime_model import detect_regime
 
 
@@ -38,12 +39,13 @@ def calculate_final_risk(close: pd.DataFrame, config: dict) -> dict:
     # 가중치 로드
     weight_cfg = config.get("risk_engine", {}).get("weights", {})
     weights = {
-        "macro": weight_cfg.get("macro", 0.20),
-        "liquidity": weight_cfg.get("liquidity", 0.20),
+        "macro": weight_cfg.get("macro", 0.18),
+        "liquidity": weight_cfg.get("liquidity", 0.17),
         "breadth": weight_cfg.get("breadth", 0.15),
-        "volatility": weight_cfg.get("volatility", 0.20),
-        "cross_asset": weight_cfg.get("cross_asset", 0.15),
+        "volatility": weight_cfg.get("volatility", 0.18),
+        "cross_asset": weight_cfg.get("cross_asset", 0.12),
         "regime": weight_cfg.get("regime", 0.10),
+        "global_macro": weight_cfg.get("global_macro", 0.10),
     }
 
     signals = {}
@@ -77,6 +79,11 @@ def calculate_final_risk(close: pd.DataFrame, config: dict) -> dict:
     logger.info("Regime Detection 계산 중...")
     regime = detect_regime(close, config)
     signals["regime"] = regime
+
+    # 7) Global Macro
+    logger.info("Global Macro Signal 계산 중...")
+    global_macro = calculate_global_macro_score(close, config)
+    signals["global_macro"] = global_macro
 
     # ── 가중 평균 계산 ─────────────────────────────────
     weighted_sum = 0.0
