@@ -99,6 +99,18 @@ All system parameters live in `config.yaml`:
   - 데스크로스: velocity < -1%/10d, SPY 200일선: velocity < -1.5%/10d
 - 테스트 결과: SPY 200일선 지표가 실시간으로 0.5 선행 경고 발동 확인 (675 → 655, 3% 이내)
 
+### 2026-03-12 — 글로벌 거시 신호 추가
+
+- `signals/global_macro.py` 신규 생성
+  - EEM/SPY 상대 수익률 (신흥국 vs 미국, 35% 가중)
+  - VEU/SPY 상대 수익률 (글로벌 vs 미국, 30% 가중)
+  - CPER/GLD 구리/금 비율 (경기 선행지표, 35% 가중)
+  - 롤링 퍼센타일 반전 정규화 (낮은 상대수익률 = 높은 리스크)
+- `risk/risk_engine.py`: global_macro 시그널 추가 (7번째 신호)
+- `config.yaml`: global 티커(EEM, VEU, CPER) 추가, 가중치 재조정
+  - global_macro 10% 신규 / 기존 신호들 소폭 감소 (총합 100% 유지)
+- 실시간 결과: global_macro 0.744 (신흥국·글로벌 약세, 구리/금 하락 감지)
+
 ### 2026-03-12 — VIX 중복 반영 제거
 
 - `signals/macro.py` 수정: VIX 지표를 macro 점수 계산에서 제외
