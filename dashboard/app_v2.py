@@ -21,6 +21,7 @@ import streamlit as st
 import streamlit.components.v1 as stc
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 import yaml
 
 from data.fetcher import fetch_market_data
@@ -181,6 +182,51 @@ with c2:
         st.rerun()
 
 
+def calc_score_history(close: pd.DataFrame, days: int = 60) -> pd.Series:
+    """
+    과거 N일간의 일별 리스크 프록시 점수를 빠르게 계산합니다.
+    VIX 퍼센타일, 크레딧 스트레스, SPY vs 200MA, 달러 강세 4개 지표 가중 평균.
+    """
+    idx = close.index
+    result = pd.Series(index=idx, dtype=float)
+
+    # 1) VIX 252일 롤링 퍼센타일 (가중 35%)
+    if "^VIX" in close.columns:
+        vix = close["^VIX"].dropna()
+        vix_pct = vix.rolling(252, min_periods=60).rank(pct=True)
+        result = vix_pct.reindex(idx) * 0.35
+
+    # 2) HYG/LQD 20일 변화 → 0~1 (가중 25%)
+    if "HYG" in close.columns and "LQD" in close.columns:
+        ratio = (close["HYG"] / close["LQD"]).dropna()
+        change = ratio.pct_change(20)
+        # 하락(-5%~0%)을 0~1로 매핑
+        credit_score = np.clip(-change / 0.05, 0, 1)
+        result = result.add(credit_score.reindex(idx).fillna(0) * 0.25, fill_value=0)
+
+    # 3) SPY vs 200MA 거리 → 0~1 (가중 25%)
+    if "SPY" in close.columns:
+        spy = close["SPY"].dropna()
+        sma200 = spy.rolling(200, min_periods=100).mean()
+        gap = (spy - sma200) / sma200  # 양수=위 / 음수=아래
+        # -10%~0% 구간을 0~1로 매핑 (아래로 내려갈수록 위험)
+        spy_score = np.clip(-gap / 0.10, 0, 1)
+        result = result.add(spy_score.reindex(idx).fillna(0.5) * 0.25, fill_value=0)
+
+    # 4) 달러 20일 변화 → 0~1 (가중 15%)
+    for dollar in ["UUP", "DX-Y.NYB"]:
+        if dollar in close.columns:
+            uup = close[dollar].dropna()
+            uup_chg = uup.pct_change(20)
+            dollar_score = np.clip(uup_chg / 0.04, 0, 1)
+            result = result.add(dollar_score.reindex(idx).fillna(0) * 0.15, fill_value=0)
+            break
+
+    result = result.clip(0, 1)
+    # 오늘 실제 점수로 마지막 값 보정
+    return result.dropna().tail(days)
+
+
 # ── 데이터 로드 & 계산 (두 모드 공통) ─────────────────────────
 with st.spinner("⚡ 퀀트 엔진 로딩 중..."):
     config      = load_config()
@@ -190,9 +236,13 @@ if close.empty:
     st.error("데이터 수신 오류")
     st.stop()
 
-risk_result = calculate_final_risk(close, config)
-sizing      = calculate_position_sizing(risk_result["final_score"], close, config)
-action      = generate_portfolio_action(risk_result, sizing, config)
+risk_result  = calculate_final_risk(close, config)
+sizing       = calculate_position_sizing(risk_result["final_score"], close, config)
+action       = generate_portfolio_action(risk_result, sizing, config)
+score_history = calc_score_history(close, days=60)
+# 마지막 값을 실제 엔진 점수로 보정
+if not score_history.empty:
+    score_history.iloc[-1] = risk_result["final_score"]
 
 final_score = risk_result["final_score"]
 level       = score_to_level(final_score)
@@ -313,6 +363,66 @@ else:
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # ── 레벨 추이 차트 (60일) ────────────────────────────────
+    if not score_history.empty:
+        fig_hist = go.Figure()
+
+        # 배경 레벨 구간
+        level_bands = [
+            (0.0,  0.2,  "rgba(0,255,136,0.06)",  "정상"),
+            (0.2,  0.45, "rgba(250,221,0,0.06)",   "주의"),
+            (0.45, 0.6,  "rgba(255,158,0,0.08)",   "경고"),
+            (0.6,  0.8,  "rgba(255,42,42,0.08)",   "위험"),
+            (0.8,  1.0,  "rgba(100,0,0,0.15)",     "극도위험"),
+        ]
+        for y0, y1, color, label in level_bands:
+            fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, line_width=0,
+                               annotation_text=label,
+                               annotation_position="left",
+                               annotation_font=dict(size=9, color="rgba(255,255,255,0.3)"))
+
+        # L2 임계선
+        fig_hist.add_hline(y=0.45, line_dash="dot", line_color="rgba(255,158,0,0.5)",
+                           line_width=1)
+
+        # 점수 선
+        colors_line = [bar_color(s) for s in score_history.values]
+        fig_hist.add_trace(go.Scatter(
+            x=score_history.index,
+            y=score_history.values,
+            mode="lines",
+            line=dict(color="#4fc3f7", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(79,195,247,0.07)",
+            name="Risk Score",
+            hovertemplate="%{x|%m/%d}<br>Score: %{y:.3f}<extra></extra>",
+        ))
+
+        # 현재 점수 마커
+        fig_hist.add_trace(go.Scatter(
+            x=[score_history.index[-1]],
+            y=[score_history.values[-1]],
+            mode="markers",
+            marker=dict(size=10, color=bar_color(score_history.values[-1]),
+                        line=dict(width=2, color="white")),
+            name="현재",
+            hovertemplate="현재: %{y:.3f}<extra></extra>",
+        ))
+
+        fig_hist.update_layout(
+            title=dict(text="리스크 레벨 추이 (최근 60일)", font=dict(size=13, color="#aaa")),
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=220,
+            margin=dict(l=40, r=20, t=40, b=20),
+            yaxis=dict(range=[0, 1], tickvals=[0, 0.2, 0.45, 0.6, 0.8, 1.0],
+                       tickfont=dict(size=10)),
+            xaxis=dict(tickfont=dict(size=10)),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_hist, use_container_width=True)
 
     # ── Regime 배너 ──────────────────────────────────────────
     regime_info   = risk_result.get("regime", {})
