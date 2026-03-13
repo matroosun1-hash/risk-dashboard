@@ -353,13 +353,41 @@ else:
     # 게이지
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # 레벨 요약
+    # ── B: 연속 일수 + 방향 표시 ─────────────────────────────
     lc = gauge_colors.get(level, "#e0e0e0")
+
+    # 연속 일수: 현재 레벨과 같은 날이 뒤에서부터 몇 일째인지
+    consec_days = 1
+    if len(score_history) >= 2:
+        levels_hist = [score_to_level(s) for s in score_history.values]
+        for past_level in reversed(levels_hist[:-1]):
+            if past_level == level:
+                consec_days += 1
+            else:
+                break
+
+    # 방향: 최근 3일 평균 vs 그 이전 3일 평균
+    direction = ""
+    if len(score_history) >= 6:
+        recent3 = score_history.values[-3:].mean()
+        prev3   = score_history.values[-6:-3].mean()
+        diff    = recent3 - prev3
+        if diff > 0.02:
+            direction = '<span style="color:#ff6b6b;font-size:1rem;">↑ 상승 중</span>'
+        elif diff < -0.02:
+            direction = '<span style="color:#69db7c;font-size:1rem;">↓ 하락 중</span>'
+        else:
+            direction = '<span style="color:#aaa;font-size:1rem;">→ 횡보</span>'
+
+    consec_color = lc if consec_days >= 3 else "#888"
     st.markdown(
-        f'<div style="text-align:center;margin-bottom:1.5rem;">'
+        f'<div style="text-align:center;margin-bottom:1.2rem;">'
         f'<span style="font-family:Orbitron;font-size:1.6rem;color:{lc};font-weight:900;">'
         f'L{level} {level_name(level)}</span>'
+        f'&nbsp;&nbsp;{direction}'
         f'<br><span style="color:#888;font-size:0.9rem;">{action_text(level)}</span>'
+        f'<br><span style="font-family:Orbitron;font-size:0.75rem;color:{consec_color};">'
+        f'● {consec_days}일째 지속 중</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -398,6 +426,33 @@ else:
             name="Risk Score",
             hovertemplate="%{x|%m/%d}<br>Score: %{y:.3f}<extra></extra>",
         ))
+
+        # ── A: 레벨 전환 이벤트 마커 ──────────────────────────
+        event_x, event_y, event_text, event_colors = [], [], [], []
+        prev_lv = None
+        for dt, sc in zip(score_history.index, score_history.values):
+            lv = score_to_level(sc)
+            if prev_lv is not None and lv != prev_lv:
+                arrow = "↑" if lv > prev_lv else "↓"
+                lv_names = {0:"정상",1:"주의",2:"경고",3:"위험",4:"극도위험"}
+                event_x.append(dt)
+                event_y.append(sc)
+                event_text.append(f"{arrow} L{prev_lv}→L{lv} {lv_names.get(lv,'')}")
+                event_colors.append(bar_color(sc))
+            prev_lv = lv
+
+        if event_x:
+            fig_hist.add_trace(go.Scatter(
+                x=event_x, y=event_y,
+                mode="markers+text",
+                marker=dict(size=9, color=event_colors,
+                            symbol="diamond", line=dict(width=1.5, color="white")),
+                text=event_text,
+                textposition="top center",
+                textfont=dict(size=9, color="rgba(255,255,255,0.7)"),
+                hovertemplate="%{text}<br>%{x|%m/%d}<extra></extra>",
+                name="레벨 전환",
+            ))
 
         # 현재 점수 마커
         fig_hist.add_trace(go.Scatter(
