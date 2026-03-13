@@ -136,9 +136,15 @@ def calculate_breadth_score(close: pd.DataFrame, config: dict = None) -> dict:
 
     # 2) RSP/SPY Breadth
     rsp_score = _rsp_spy_breadth(close)
+    if "RSP" in close.columns and "SPY" in close.columns:
+        _ratio = (close["RSP"] / close["SPY"]).dropna()
+        _rsp_change = _ratio.iloc[-1] / _ratio.iloc[-20] - 1 if len(_ratio) > 20 else 0.0
+        rsp_val = f"20일 변화: {_rsp_change:+.2%}"
+    else:
+        rsp_val = "데이터 없음"
     components.append({
         "name": "RSP/SPY 시장폭",
-        "value": f"score={rsp_score:.2f}",
+        "value": rsp_val,
         "score": rsp_score,
     })
 
@@ -146,15 +152,25 @@ def calculate_breadth_score(close: pd.DataFrame, config: dict = None) -> dict:
     hl_score = _high_low_ratio(close)
     components.append({
         "name": "52주 고/저 비율",
-        "value": f"score={hl_score:.2f}",
+        "value": f"신저가 구간 비율: {hl_score:.0%}",
         "score": hl_score,
     })
 
     # 4) McClellan proxy
     mc_score = _mcclellan_proxy(close)
+    if "RSP" in close.columns:
+        _rsp = close["RSP"].dropna()
+        if len(_rsp) >= 39:
+            _ret = _rsp.pct_change().dropna()
+            _mc_val = (_ret.ewm(span=19).mean() - _ret.ewm(span=39).mean()).iloc[-1]
+            mc_val = f"오실레이터: {_mc_val:+.5f}"
+        else:
+            mc_val = "데이터 부족"
+    else:
+        mc_val = "데이터 없음"
     components.append({
         "name": "McClellan 프록시",
-        "value": f"score={mc_score:.2f}",
+        "value": mc_val,
         "score": mc_score,
     })
 

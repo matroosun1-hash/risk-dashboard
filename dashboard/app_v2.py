@@ -377,13 +377,12 @@ else:
                     unsafe_allow_html=True,
                 )
 
-        # 컴포넌트 있는 신호들
+        # 컴포넌트 있는 신호들 (score/value/note 구조)
         comp_signals = {
-            "liquidity":    "Liquidity (유동성 스트레스)",
-            "breadth":      "Market Breadth (시장폭)",
-            "volatility":   "Volatility (변동성)",
-            "cross_asset":  "Cross Asset (교차자산)",
-            "global_macro": "Global Macro (글로벌 거시)",
+            "liquidity":    "Liquidity(유동성 스트레스)",
+            "breadth":      "Market Breadth(시장폭)",
+            "volatility":   "Volatility(변동성)",
+            "global_macro": "Global Macro(글로벌 거시)",
         }
         for key, label in comp_signals.items():
             sig = signals.get(key, {})
@@ -401,6 +400,30 @@ else:
                     f'<span class="ind-name" style="color:{color};">{comp.get("name","")}</span>'
                     f'<span class="ind-detail">{val}&nbsp;&nbsp;{note}</span>'
                     f'<span class="ind-score" style="color:{color};">{sc:.2f}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        # Cross-Asset (별도 구조: triggered/intensity/asset_a/asset_b/desc)
+        cross_sig = signals.get("cross_asset", {})
+        cross_comps = cross_sig.get("components", [])
+        if cross_comps:
+            st.markdown("#### Cross Asset(교차자산 괴리)")
+            for comp in cross_comps:
+                triggered = comp.get("triggered", False)
+                intensity = comp.get("intensity", 0.0)
+                color = "#ff4444" if triggered else "#44bb44"
+                bg    = "rgba(255,68,68,0.08)" if triggered else "rgba(255,255,255,0.02)"
+                icon  = "🔴" if triggered else "🟢"
+                asset_a = comp.get("asset_a", "")
+                asset_b = comp.get("asset_b", "")
+                desc    = comp.get("desc", "")
+                intensity_str = f"강도: {intensity:.3f}" if triggered else "미발동"
+                st.markdown(
+                    f'<div class="ind-row" style="background:{bg};border-left:4px solid {color};">'
+                    f'<span class="ind-name" style="color:{color};">{icon} {comp.get("name","")}</span>'
+                    f'<span class="ind-detail">{asset_a} / {asset_b}&nbsp;&nbsp;{desc}</span>'
+                    f'<span class="ind-score" style="color:{color};font-size:0.78rem;">{intensity_str}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
