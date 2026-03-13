@@ -116,7 +116,7 @@ section[data-testid="stMain"] > div:first-child { padding-top: 0.5rem !important
 .sig-row { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.7rem; }
 .sig-name {
     font-family: 'Orbitron', sans-serif; font-size: 0.65rem;
-    letter-spacing: 1px; color: #aaa; width: 80px; flex-shrink: 0;
+    letter-spacing: 1px; color: #aaa; width: 120px; flex-shrink: 0;
 }
 .sig-bar-bg { flex: 1; height: 8px; background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden; }
 .sig-bar { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
@@ -227,15 +227,43 @@ fig_gauge.update_layout(
     margin=dict(t=20, b=0, l=20, r=20),
 )
 
+# ── 신호명 한국어 번역 ────────────────────────────────────────
+SIG_KO = {
+    "macro":        "거시경제",
+    "liquidity":    "유동성",
+    "breadth":      "시장폭",
+    "volatility":   "변동성",
+    "cross_asset":  "교차자산",
+    "regime":       "시장국면",
+    "global_macro": "글로벌거시",
+}
+
+REGIME_KO = {
+    "Expansion":       "확장",
+    "Inflation":       "인플레이션",
+    "Correction":      "조정",
+    "Liquidity Crisis":"유동성위기",
+    "Unknown":         "미확인",
+}
+
+ALLOC_KO = {
+    "equity":   "주식",
+    "treasury": "국채",
+    "gold":     "금",
+    "cash":     "현금",
+}
+
 # ── 공통: 시그널 바 HTML ─────────────────────────────────────
 signals_html = ""
 for sig_name, info in risk_result["signal_summary"].items():
     s = info.get("score", 0)
     w = info.get("weight", 0)
     color = bar_color(s)
+    ko = SIG_KO.get(sig_name, "")
+    label = f'{sig_name.upper()}<span style="color:#666;font-size:0.6rem;margin-left:3px;">({ko})</span>'
     signals_html += (
         f'<div class="sig-row">'
-        f'<span class="sig-name">{sig_name.upper()}'
+        f'<span class="sig-name">{label}'
         f'<span style="color:#555;font-size:0.58rem;margin-left:4px;">{w:.0%}</span></span>'
         f'<div class="sig-bar-bg"><div class="sig-bar" style="width:{int(s*100)}%;background:{color};"></div></div>'
         f'<span class="sig-val" style="color:{color};">{s:.2f}</span>'
@@ -251,7 +279,7 @@ if mode == "phone":
 
     st.markdown(
         f'<div class="signals-card">'
-        f'<p class="signals-title">Signal Breakdown</p>'
+        f'<p class="signals-title">Signal Breakdown (신호 분석)</p>'
         f'{signals_html}'
         f'</div>',
         unsafe_allow_html=True,
@@ -307,17 +335,17 @@ else:
     )
     st.markdown(
         f'<div class="detail-card" style="margin-bottom:0.5rem;padding:0.8rem 1.2rem;">'
-        f'<span style="color:#666;font-size:0.7rem;letter-spacing:2px;font-family:Orbitron;">REGIME&nbsp;&nbsp;</span>'
-        f'<span style="font-family:Orbitron;font-size:0.95rem;color:{rc};font-weight:700;">{hmm_regime}</span>'
+        f'<span style="color:#666;font-size:0.7rem;letter-spacing:2px;font-family:Orbitron;">REGIME(시장국면)&nbsp;&nbsp;</span>'
+        f'<span style="font-family:Orbitron;font-size:0.95rem;color:{rc};font-weight:700;">{hmm_regime}({REGIME_KO.get(hmm_regime,"")})</span>'
         f'{corr_badge}'
-        f'<span style="color:#555;font-size:0.75rem;margin-left:12px;">→ Dynamic weights active</span>'
+        f'<span style="color:#555;font-size:0.75rem;margin-left:12px;">→ 동적 가중치 적용중</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
     # 시그널 요약 바
     st.markdown(
-        f'<div class="detail-card"><p class="detail-title">Signal Overview — score / weight(%)</p>'
+        f'<div class="detail-card"><p class="detail-title">Signal Overview(신호 개요) — score / weight(%)</p>'
         f'{signals_html}</div>',
         unsafe_allow_html=True,
     )
@@ -385,7 +413,7 @@ else:
             reg_probs  = regime.get("probabilities", {})
             is_capped  = "[corroboration cap]" in reg_detail
             rc2        = regime_colors.get(reg_name, "#888")
-            st.markdown("#### Regime Detection (HMM)")
+            st.markdown("#### Regime Detection(시장국면 감지) — HMM")
 
             # 확률 바
             prob_html = ""
@@ -393,7 +421,7 @@ else:
                 rc3 = regime_colors.get(rname, "#888")
                 prob_html += (
                     f'<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:4px;">'
-                    f'<span style="font-size:0.75rem;color:#aaa;width:130px;">{rname}</span>'
+                    f'<span style="font-size:0.75rem;color:#aaa;width:150px;">{rname}({REGIME_KO.get(rname,"")})</span>'
                     f'<div style="flex:1;height:6px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden;">'
                     f'<div style="height:100%;width:{rprob*100:.1f}%;background:{rc3};border-radius:3px;"></div></div>'
                     f'<span style="font-size:0.78rem;font-weight:700;color:{rc3};width:40px;text-align:right;">{rprob:.0%}</span>'
@@ -403,7 +431,7 @@ else:
             cap_note = (
                 '<div style="margin-top:0.6rem;padding:0.4rem 0.8rem;background:rgba(255,170,0,0.1);'
                 'border-radius:6px;color:#ffaa00;font-size:0.78rem;">'
-                '⚠ Corroboration filter: Liquidity/Volatility 신호 부족 → 가중치 Correction으로 강등'
+                '⚠ Corroboration filter(교차검증): Liquidity(유동성)/Volatility(변동성) 신호 부족 → 가중치 Correction(조정)으로 강등'
                 '</div>'
             ) if is_capped else ""
 
@@ -488,7 +516,7 @@ else:
                 color = bar_color(v) if k == "equity" else "#4fc3f7"
                 st.markdown(
                     f'<div class="ind-row" style="background:rgba(255,255,255,0.03);">'
-                    f'<span class="ind-name" style="min-width:80px;">{k.upper()}</span>'
+                    f'<span class="ind-name" style="min-width:110px;">{k.upper()}<span style="color:#666;font-size:0.75rem;margin-left:4px;">({ALLOC_KO.get(k,"")})</span></span>'
                     f'<div style="flex:1;height:8px;background:rgba(255,255,255,0.07);border-radius:4px;overflow:hidden;">'
                     f'<div style="height:100%;width:{int(v*100)}%;background:{color};border-radius:4px;"></div></div>'
                     f'<span class="ind-score" style="color:{color};">{v:.0%}</span>'
