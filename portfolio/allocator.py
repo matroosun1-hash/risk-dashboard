@@ -38,7 +38,7 @@ def generate_portfolio_action(risk_result: dict, sizing_result: dict, config: di
     elif final_score >= 0.6:
         risk_level = "위험"
         risk_icon = "🔴"
-    elif final_score >= 0.4:
+    elif final_score >= 0.45:
         risk_level = "경고"
         risk_icon = "🟠"
     elif final_score >= 0.2:

@@ -70,7 +70,7 @@ def bar_color(score: float) -> str:
 def score_to_level(score: float) -> int:
     if score >= 0.8: return 4
     if score >= 0.6: return 3
-    if score >= 0.4: return 2
+    if score >= 0.45: return 2
     if score >= 0.2: return 1
     return 0
 

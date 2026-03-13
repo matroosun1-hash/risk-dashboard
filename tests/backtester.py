@@ -39,7 +39,7 @@ def load_config():
 def score_to_level(score: float) -> int:
     if score >= 0.8: return 4
     if score >= 0.6: return 3
-    if score >= 0.4: return 2
+    if score >= 0.45: return 2
     if score >= 0.2: return 1
     return 0
 
@@ -51,6 +51,11 @@ LEVEL_NAMES = {0: "정상", 1: "주의", 2: "경고", 3: "위험", 4: "극도위
 # peak: 시장 고점 (하락 시작 직전)
 # label: 사건명
 CRISES = [
+    {
+        "label": "2008 금융위기",
+        "peak": "2007-10-09",
+        "note": "서브프라임 모기지. SPY -57% (17개월)",
+    },
     {
         "label": "2018 Q4 급락",
         "peak": "2018-09-20",
@@ -77,14 +82,15 @@ CRISES = [
 CHECK_OFFSETS = [60, 30, 15, 0]
 
 
-def run_engine_at(close_all: pd.DataFrame, date_str: str, config: dict) -> dict | None:
+def run_engine_at(close_all: pd.DataFrame, date_str: str, config: dict,
+                  dynamic_weights: bool = True) -> dict | None:
     """특정 날짜까지의 데이터로 엔진 실행."""
     target = pd.Timestamp(date_str)
     close = close_all[close_all.index <= target]
     if len(close) < 252:
         return None
     try:
-        result = calculate_final_risk(close, config)
+        result = calculate_final_risk(close, config, dynamic_weights=dynamic_weights)
         return result
     except Exception as e:
         print(f"  [오류] {date_str}: {e}")
@@ -121,85 +127,113 @@ def run_backtest():
     print("\n데이터 수집 중 (max period)... 약 1~2분 소요\n")
     close_all = fetch_market_data(tickers=tickers, period="max")
 
-    all_results = []
+    all_results = {True: [], False: []}  # dynamic → True, static → False
 
     for crisis in CRISES:
         label = crisis["label"]
         peak  = crisis["peak"]
         note  = crisis["note"]
 
-        print(f"\n{'='*60}")
+        print(f"\n{'='*70}")
         print(f"[{label}]  고점: {peak}")
         print(f"  {note}")
-        print(f"{'='*60}")
-        print(f"{'날짜':<12} {'T-일':>5} {'Score':>7} {'Level':>8} {'30일 SPY':>9}")
-        print(f"{'-'*50}")
+        print(f"{'='*70}")
+        print(f"{'날짜':<12} {'T-일':>5}  {'Static':>13}  {'Dynamic':>13}  {'차이':>7}  {'30일SPY':>9}")
+        print(f"{'-'*70}")
 
-        first_warning_day = None  # 처음 Level 2 경고 발동 시점
+        first_warning = {True: None, False: None}
 
         for offset in CHECK_OFFSETS:
             check_date = business_days_before(peak, offset)
-            result = run_engine_at(close_all, check_date, config)
+            r_static  = run_engine_at(close_all, check_date, config, dynamic_weights=False)
+            r_dynamic = run_engine_at(close_all, check_date, config, dynamic_weights=True)
 
-            if result is None:
-                print(f"{check_date:<12} {'T-'+str(offset):>5}  {'데이터부족':>16}")
+            if r_static is None or r_dynamic is None:
+                print(f"{check_date:<12} {'T-'+str(offset):>5}  {'데이터부족':>30}")
                 continue
 
-            score = result["final_score"]
-            level = score_to_level(score)
-            fwd   = get_spy_forward_return(close_all, check_date, 30)
+            s_score = r_static["final_score"]
+            d_score = r_dynamic["final_score"]
+            s_level = score_to_level(s_score)
+            d_level = score_to_level(d_score)
+            diff    = d_score - s_score
+            regime  = r_dynamic["regime"].get("regime", "?")[:12]
+            fwd     = get_spy_forward_return(close_all, check_date, 30)
             fwd_str = f"{fwd:+.1%}" if fwd is not None else "N/A"
 
-            flag = ""
-            if level >= 2 and first_warning_day is None:
-                first_warning_day = (offset, check_date)
-                flag = " ◀ 첫 경고"
+            flags = ""
+            if d_level >= 2 and first_warning[True] is None:
+                first_warning[True] = (offset, check_date)
+                flags += " ◀D"
+            if s_level >= 2 and first_warning[False] is None:
+                first_warning[False] = (offset, check_date)
+                flags += " ◀S"
 
-            print(f"{check_date:<12} {'T-'+str(offset):>5}  {score:.3f}  "
-                  f"L{level} {LEVEL_NAMES[level]:<6}  {fwd_str:>8}{flag}")
+            diff_str = f"{diff:+.3f}"
+            print(f"{check_date:<12} {'T-'+str(offset):>5}"
+                  f"  {s_score:.3f} L{s_level}"
+                  f"  {d_score:.3f} L{d_level}"
+                  f"  {diff_str:>7}"
+                  f"  {fwd_str:>8}  [{regime}]{flags}")
 
-            all_results.append({
-                "위기": label,
-                "날짜": check_date,
-                "T-일": offset,
-                "Score": round(score, 3),
-                "Level": level,
-                "30일SPY": fwd_str,
-            })
+            for dyn in (True, False):
+                res = r_dynamic if dyn else r_static
+                all_results[dyn].append({
+                    "위기": label,
+                    "날짜": check_date,
+                    "T-일": offset,
+                    "Score": round(res["final_score"], 3),
+                    "Level": score_to_level(res["final_score"]),
+                    "30일SPY": fwd_str,
+                })
 
-        if first_warning_day:
-            offset, date = first_warning_day
-            print(f"\n  → 첫 Level 2 경고: 고점 {offset}일 전 ({date})")
-        else:
-            print(f"\n  → Level 2 이상 경고 없음")
+        print()
+        for dyn, tag in ((True, "Dynamic"), (False, "Static")):
+            if first_warning[dyn]:
+                o, d = first_warning[dyn]
+                print(f"  [{tag}] 첫 L2 경고: 고점 {o}일 전 ({d})")
+            else:
+                print(f"  [{tag}] Level 2 이상 경고 없음")
 
     # ── 최종 요약 ──────────────────────────────────────────────
-    print(f"\n\n{'='*60}")
-    print("  백테스트 요약")
-    print(f"{'='*60}")
+    print(f"\n\n{'='*70}")
+    print("  백테스트 요약 — Static vs Dynamic 비교")
+    print(f"{'='*70}")
 
-    crisis_results = [r for r in all_results if "오경보" not in r["위기"]]
-    bull_results   = [r for r in all_results if "오경보" in r["위기"]]
-
-    print("\n[위기 감지 성능]")
+    print(f"\n{'위기':<24} {'Static 선행':>12} {'Dynamic 선행':>13} {'개선':>8}")
+    print(f"{'-'*60}")
     for crisis in CRISES:
         if "오경보" in crisis["label"]:
             continue
-        label = crisis["label"]
-        rows = [r for r in all_results if r["위기"] == label]
-        warnings_fired = [r for r in rows if r["Level"] >= 2]
-        if warnings_fired:
-            earliest = max(r["T-일"] for r in warnings_fired)
-            print(f"  {label:<22} → 고점 {earliest:>2}일 전 첫 경고 발동")
-        else:
-            print(f"  {label:<22} → 경고 미발동 (놓침)")
+        lbl = crisis["label"]
+        for dyn, tag in ((False, "static"), (True, "dynamic")):
+            rows = [r for r in all_results[dyn] if r["위기"] == lbl]
+            fired = [r for r in rows if r["Level"] >= 2]
+            if dyn:
+                d_lead = max(r["T-일"] for r in fired) if fired else None
+            else:
+                s_lead = max(r["T-일"] for r in fired) if fired else None
 
-    print("\n[오경보 체크 — 2019 Bull Market]")
-    bull_warnings = [r for r in bull_results if r["Level"] >= 2]
-    if bull_warnings:
-        print(f"  ⚠️  오경보 발동 {len(bull_warnings)}회 (총 {len(bull_results)}회 체크)")
-    else:
-        print(f"  ✅ 오경보 없음 (총 {len(bull_results)}회 체크, 모두 Level 1 이하)")
+        s_str = f"{s_lead}일 전" if s_lead else "놓침"
+        d_str = f"{d_lead}일 전" if d_lead else "놓침"
+        if s_lead is not None and d_lead is not None:
+            imp = f"+{d_lead - s_lead}일" if d_lead > s_lead else (f"{d_lead - s_lead}일" if d_lead < s_lead else "동일")
+        elif d_lead is not None:
+            imp = "신규감지"
+        elif s_lead is not None:
+            imp = "감지손실"
+        else:
+            imp = "-"
+        print(f"  {lbl:<22} {s_str:>12} {d_str:>13} {imp:>8}")
+
+    print(f"\n[오경보 체크 — 2019 Bull Market]")
+    for dyn, tag in ((False, "Static "), (True, "Dynamic")):
+        bull = [r for r in all_results[dyn] if "오경보" in r["위기"]]
+        fired = [r for r in bull if r["Level"] >= 2]
+        if fired:
+            print(f"  [{tag}] ⚠  오경보 {len(fired)}회 / {len(bull)}회 체크")
+        else:
+            print(f"  [{tag}] ✅ 오경보 없음 ({len(bull)}회 체크)")
 
 
 if __name__ == "__main__":

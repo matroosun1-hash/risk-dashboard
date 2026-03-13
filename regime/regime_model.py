@@ -130,8 +130,15 @@ def detect_regime(close: pd.DataFrame, config: dict) -> dict:
             "detail": "HMM 미설치 (pip install hmmlearn)",
         }
 
-    # 피처 준비
-    features = _prepare_features(close)
+    # 피처 준비 (lookback_years 적용)
+    lookback_years = regime_cfg.get("lookback_years", None)
+    features_full = _prepare_features(close)
+    if lookback_years is not None:
+        cutoff = features_full.index[-1] - pd.DateOffset(years=lookback_years)
+        features = features_full[features_full.index >= cutoff]
+    else:
+        features = features_full
+
     if len(features) < 100:
         return {
             "regime": "Unknown",
