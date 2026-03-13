@@ -231,10 +231,12 @@ fig_gauge.update_layout(
 signals_html = ""
 for sig_name, info in risk_result["signal_summary"].items():
     s = info.get("score", 0)
+    w = info.get("weight", 0)
     color = bar_color(s)
     signals_html += (
         f'<div class="sig-row">'
-        f'<span class="sig-name">{sig_name.upper()}</span>'
+        f'<span class="sig-name">{sig_name.upper()}'
+        f'<span style="color:#555;font-size:0.58rem;margin-left:4px;">{w:.0%}</span></span>'
         f'<div class="sig-bar-bg"><div class="sig-bar" style="width:{int(s*100)}%;background:{color};"></div></div>'
         f'<span class="sig-val" style="color:{color};">{s:.2f}</span>'
         f'</div>'
@@ -284,9 +286,38 @@ else:
         unsafe_allow_html=True,
     )
 
+    # ── Regime 배너 ──────────────────────────────────────────
+    regime_info   = risk_result.get("regime", {})
+    hmm_regime    = regime_info.get("regime", "Unknown")
+    regime_detail = risk_result.get("signals", {}).get("regime", {}).get("detail", "")
+    corroborated  = "[corroboration cap]" in regime_detail
+
+    regime_colors = {
+        "Expansion":       "#44bb44",
+        "Inflation":       "#fadd00",
+        "Correction":      "#ff9e00",
+        "Liquidity Crisis":"#ff2a2a",
+    }
+    rc = regime_colors.get(hmm_regime, "#888")
+    corr_badge = (
+        '<span style="background:rgba(255,170,0,0.2);color:#ffaa00;'
+        'font-size:0.7rem;padding:2px 8px;border-radius:10px;margin-left:8px;">'
+        '⚠ Crisis 강등됨</span>'
+        if corroborated else ""
+    )
+    st.markdown(
+        f'<div class="detail-card" style="margin-bottom:0.5rem;padding:0.8rem 1.2rem;">'
+        f'<span style="color:#666;font-size:0.7rem;letter-spacing:2px;font-family:Orbitron;">REGIME&nbsp;&nbsp;</span>'
+        f'<span style="font-family:Orbitron;font-size:0.95rem;color:{rc};font-weight:700;">{hmm_regime}</span>'
+        f'{corr_badge}'
+        f'<span style="color:#555;font-size:0.75rem;margin-left:12px;">→ Dynamic weights active</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     # 시그널 요약 바
     st.markdown(
-        f'<div class="detail-card"><p class="detail-title">Signal Overview (7 signals)</p>'
+        f'<div class="detail-card"><p class="detail-title">Signal Overview — score / weight(%)</p>'
         f'{signals_html}</div>',
         unsafe_allow_html=True,
     )
@@ -349,13 +380,39 @@ else:
         # Regime
         regime = signals.get("regime", {})
         if regime:
-            reg_name = regime.get("regime", "Unknown")
+            reg_name   = regime.get("regime", "Unknown")
             reg_detail = regime.get("detail", "")
+            reg_probs  = regime.get("probabilities", {})
+            is_capped  = "[corroboration cap]" in reg_detail
+            rc2        = regime_colors.get(reg_name, "#888")
             st.markdown("#### Regime Detection (HMM)")
+
+            # 확률 바
+            prob_html = ""
+            for rname, rprob in sorted(reg_probs.items(), key=lambda x: -x[1]):
+                rc3 = regime_colors.get(rname, "#888")
+                prob_html += (
+                    f'<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:4px;">'
+                    f'<span style="font-size:0.75rem;color:#aaa;width:130px;">{rname}</span>'
+                    f'<div style="flex:1;height:6px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden;">'
+                    f'<div style="height:100%;width:{rprob*100:.1f}%;background:{rc3};border-radius:3px;"></div></div>'
+                    f'<span style="font-size:0.78rem;font-weight:700;color:{rc3};width:40px;text-align:right;">{rprob:.0%}</span>'
+                    f'</div>'
+                )
+
+            cap_note = (
+                '<div style="margin-top:0.6rem;padding:0.4rem 0.8rem;background:rgba(255,170,0,0.1);'
+                'border-radius:6px;color:#ffaa00;font-size:0.78rem;">'
+                '⚠ Corroboration filter: Liquidity/Volatility 신호 부족 → 가중치 Correction으로 강등'
+                '</div>'
+            ) if is_capped else ""
+
             st.markdown(
                 f'<div class="detail-card">'
-                f'<span style="font-family:Orbitron;font-size:1rem;color:#4fc3f7;">{reg_name}</span>'
-                f'<span style="color:#888;font-size:0.85rem;margin-left:1rem;">{reg_detail}</span>'
+                f'<span style="font-family:Orbitron;font-size:1rem;color:{rc2};font-weight:700;">{reg_name}</span>'
+                f'<span style="color:#888;font-size:0.82rem;margin-left:1rem;">{reg_detail.replace("[corroboration cap]","").strip()}</span>'
+                f'<div style="margin-top:0.8rem;">{prob_html}</div>'
+                f'{cap_note}'
                 f'</div>',
                 unsafe_allow_html=True,
             )
