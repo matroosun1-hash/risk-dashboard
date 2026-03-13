@@ -150,3 +150,30 @@ All system parameters live in `config.yaml`:
 - `<meta>` + `<style>` 동시 사용 시 Streamlit이 `<style>` 제거 → `<meta>` 제거로 해결
 - HTML 4칸 들여쓰기 → Markdown 코드블록으로 인식 → 한 줄 문자열로 변경
 - `fetcher.py` 이모지 print → Windows cp949 UnicodeEncodeError → stdout UTF-8 강제 설정
+
+### 2026-03-13 — Dynamic Threshold + HMM 코로보레이션 필터 + 대시보드 개선
+
+- `risk/risk_engine.py`: regime별 동적 가중치 (`_REGIME_MULTIPLIERS`) 추가
+  - Expansion: liquidity 0.5x, volatility 0.6x (평시 과민반응 억제)
+  - Liquidity Crisis: liquidity 2.0x, volatility 1.5x (쓰나미 조기 감지)
+  - `calculate_final_risk(dynamic_weights=True/False)` 플래그 추가
+- `risk/risk_engine.py`: Liquidity Crisis 코로보레이션 필터
+  - `(liq + vol) / 2 < 0.5` 이면 Crisis → Correction 강등 + regime 점수 캡
+  - 2019 오경보 제거 핵심 로직
+- `regime/regime_model.py`: `config.yaml lookback_years` 실제 연결 (기본 5y)
+- `portfolio/allocator.py`, `dashboard/app_v2.py`, `tests/backtester.py`: L2 임계값 0.40 → 0.45
+- `dashboard/app_v2.py`: 동적 가중치 % 표시, Regime 배너, Crisis 강등 배지, 4상태 확률 바
+- `tests/backtester.py`: Static vs Dynamic 비교 모드, 2008 금융위기 케이스 추가
+- `tests/hmm_tuning.py` 신규: HMM 그리드 서치 (n=3~5, cov=full/diag, window=all/10y/5y)
+
+#### 백테스트 최종 결과 (Dynamic 기준)
+| 위기 | 감지 | 선행성 |
+|------|------|--------|
+| 2008 금융위기 | ✅ | 30일 전 |
+| 2018 Q4 | ❌ | 구조적 한계 |
+| 2020 COVID | ✅ | 15일 전 |
+| 2022 베어마켓 | ✅ | 15일 전 |
+| 2019 오경보 | ✅ 없음 | — |
+
+- **종합**: 4개 위기 중 3개 감지 (75%), 오경보 0회
+- HMM 최적 설정: `n_components=4, covariance_type=full, lookback_years=5`
