@@ -3,6 +3,8 @@ signals/cross_asset.py — 교차자산 리스크 신호 (Cross-Asset Risk Signa
 
 주식-채권-금-달러-원유-크레딧 간 상관관계 괴리를 탐지합니다.
 정상적 상관관계가 깨지면 위험 신호로 판단합니다.
+
+개선: 이진 trigger → 시그모이드 연속 점수. 양극단 분포 해소.
 """
 
 import pandas as pd
@@ -59,17 +61,43 @@ def _get_return(close: pd.DataFrame, ticker: str, period: int = 20) -> float:
     return float(series.iloc[-1] / series.iloc[-period] - 1)
 
 
-def _check_divergence(ret_a: float, dir_a: str, ret_b: float, dir_b: str,
-                       threshold: float = 0.005) -> tuple[bool, float]:
-    """괴리 패턴이 발생했는지 확인합니다.
-    Returns: (triggered, intensity)"""
-    cond_a = (ret_a > threshold) if dir_a == "up" else (ret_a < -threshold)
-    cond_b = (ret_b > threshold) if dir_b == "up" else (ret_b < -threshold)
+def _sigmoid(value: float, center: float, steepness: float = 10.0) -> float:
+    """center 근처에서 0→1 점진적 전환 (시그모이드)."""
+    return 1.0 / (1.0 + np.exp(-steepness * (value - center)))
 
-    if cond_a and cond_b:
-        intensity = (abs(ret_a) + abs(ret_b)) / 2
-        return True, intensity
-    return False, 0.0
+
+def _continuous_divergence_score(
+    ret_a: float, dir_a: str,
+    ret_b: float, dir_b: str,
+    threshold: float = 0.005,
+) -> tuple[float, float]:
+    """
+    연속 괴리 점수를 계산합니다.
+
+    이진 trigger 대신 시그모이드로 0~1 연속 점수 산출.
+    두 조건의 점수를 곱하여 교차 스코어 계산.
+
+    Returns: (pair_score, intensity)
+    """
+    # 각 조건의 방향 일치도 (시그모이드)
+    if dir_a == "up":
+        score_a = _sigmoid(ret_a, threshold)
+    else:
+        score_a = _sigmoid(-ret_a, threshold)
+
+    if dir_b == "up":
+        score_b = _sigmoid(ret_b, threshold)
+    else:
+        score_b = _sigmoid(-ret_b, threshold)
+
+    # 교차 곱: 두 조건 모두 강해야 높은 점수
+    pair_score = score_a * score_b
+
+    # 강도 보정 (상한 1.5로 축소)
+    intensity = (abs(ret_a) + abs(ret_b)) / 2
+    intensity_factor = min(intensity / 0.02, 1.5)
+
+    return float(pair_score * intensity_factor), float(intensity)
 
 
 def calculate_cross_asset_score(close: pd.DataFrame, config: dict = None, period: int = 20) -> dict:
@@ -80,35 +108,33 @@ def calculate_cross_asset_score(close: pd.DataFrame, config: dict = None, period
         {"score": 0~1, "components": [...], "detail": str}
     """
     components = []
-    triggered_weight = 0.0
+    weighted_score = 0.0
     total_weight = 0.0
 
     for pair in DIVERGENCE_PAIRS:
         ret_a = _get_return(close, pair["asset_a"], period)
         ret_b = _get_return(close, pair["asset_b"], period)
 
-        triggered, intensity = _check_divergence(
+        pair_score, intensity = _continuous_divergence_score(
             ret_a, pair["dir_a"], ret_b, pair["dir_b"]
         )
 
         total_weight += pair["weight"]
-        if triggered:
-            # 강도에 따라 가중 (최소 1.0, 최대 3.0)
-            intensity_multiplier = np.clip(intensity / 0.02, 1.0, 3.0)
-            triggered_weight += pair["weight"] * intensity_multiplier
+        weighted_score += pair["weight"] * pair_score
 
         components.append({
             "name": pair["name"],
             "desc": pair["desc"],
-            "triggered": triggered,
+            "triggered": pair_score > 0.5,
             "asset_a": f"{pair['asset_a']} {ret_a:+.2%}",
             "asset_b": f"{pair['asset_b']} {ret_b:+.2%}",
             "intensity": intensity,
+            "pair_score": round(pair_score, 3),
         })
 
     # 정규화
     if total_weight > 0:
-        final_score = triggered_weight / total_weight
+        final_score = weighted_score / total_weight
     else:
         final_score = 0.0
 

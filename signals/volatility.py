@@ -100,11 +100,13 @@ def calculate_volatility_score(close: pd.DataFrame, config: dict) -> dict:
                 "score": ts_score,
             })
 
-    # 4) SPY 실현 변동성 (20일 연율화)
-    if "SPY" in close.columns:
-        spy_ret = close["SPY"].dropna().pct_change().dropna()
-        if len(spy_ret) > 20:
-            rv = spy_ret.rolling(20).std() * np.sqrt(252)  # 연율화
+    # 4) 금리 실현 변동성 (^TNX 20일 연율화)
+    #    SPY 실현변동성 대신 금리 변동성 사용 (SPY 과의존 해소)
+    #    금리 변동성은 주식과 독립적인 리스크 차원
+    if "^TNX" in close.columns:
+        tnx_ret = close["^TNX"].dropna().pct_change().dropna()
+        if len(tnx_ret) > 20:
+            rv = tnx_ret.rolling(20).std() * np.sqrt(252)  # 연율화
             rv = rv.dropna()
             if not rv.empty:
                 current_rv = rv.iloc[-1]
@@ -113,7 +115,7 @@ def calculate_volatility_score(close: pd.DataFrame, config: dict) -> dict:
                 scores.append(rv_score)
                 weights.append(0.25)
                 components.append({
-                    "name": "SPY 실현변동성 (20d)",
+                    "name": "금리 실현변동성 (^TNX 20d)",
                     "value": f"{current_rv:.1%} (pct: {rv_score:.0%})",
                     "score": rv_score,
                 })

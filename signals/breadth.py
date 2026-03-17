@@ -3,6 +3,8 @@ signals/breadth.py — 시장 폭(Market Breadth) 엔진
 
 시장 내부 구조 붕괴를 탐지합니다.
 S&P 500 개별 종목 데이터 대신 섹터 ETF 기반 프록시를 사용합니다.
+
+개선: RSP/SPY 비율 제거 → 섹터 분산 지수로 교체 (SPY 직접 의존 절단)
 """
 
 import pandas as pd
@@ -35,20 +37,59 @@ def _pct_sectors_above_200ma(close: pd.DataFrame) -> float:
     return count_above / count_total
 
 
-def _rsp_spy_breadth(close: pd.DataFrame, period: int = 20) -> float:
-    """RSP/SPY 비율 변화로 시장 폭 측정.
-    하락 = 대형주 집중, 상승 = 폭넓은 참여."""
-    if "RSP" not in close.columns or "SPY" not in close.columns:
+def _sector_dispersion(close: pd.DataFrame, period: int = 20) -> float:
+    """
+    11개 섹터 ETF의 20일 수익률 cross-sectional 표준편차 (섹터 분산 지수).
+
+    해석:
+    - 낮음: 모든 섹터 비슷하게 움직임 → 정상
+    - 높음: 일부 섹터 급등, 일부 급락 → 시장 내부 균열 → 위험
+    - 위기 직전: 방어 섹터만 상승, 나머지 하락 → 분산 극대
+
+    롤링 퍼센타일로 정규화하여 히스토리컬 맥락에서 현재 분산 수준 판단.
+    """
+    returns = []
+    for etf in SECTOR_ETFS:
+        if etf not in close.columns:
+            continue
+        series = close[etf].dropna()
+        if len(series) > period:
+            ret = float(series.iloc[-1] / series.iloc[-period] - 1)
+            returns.append(ret)
+
+    if len(returns) < 5:
         return 0.5
 
-    ratio = (close["RSP"] / close["SPY"]).dropna()
-    if len(ratio) <= period:
+    current_dispersion = np.std(returns)
+
+    # 히스토리컬 분산을 계산하여 롤링 퍼센타일 산출
+    # 과거 252일간의 각 시점에서 섹터 분산을 계산
+    min_history = 252
+    available_etfs = [etf for etf in SECTOR_ETFS if etf in close.columns]
+    if len(available_etfs) < 5:
         return 0.5
 
-    change = ratio.iloc[-1] / ratio.iloc[-period] - 1
-    # -5% ~ +5% 범위를 0~1로 매핑 (음수=나쁨→1, 양수=좋음→0)
-    score = np.clip(-change / 0.05 * 0.5 + 0.5, 0, 1)
-    return float(score)
+    # 각 ETF의 rolling period-day return
+    ret_df = pd.DataFrame()
+    for etf in available_etfs:
+        series = close[etf].dropna()
+        if len(series) > period:
+            ret_df[etf] = series.pct_change(period)
+
+    ret_df = ret_df.dropna()
+    if len(ret_df) < min(min_history, 60):
+        # 데이터 부족 시 단순 정규화
+        score = np.clip(current_dispersion / 0.10, 0, 1)
+        return float(score)
+
+    # 각 날짜의 cross-sectional std 계산
+    daily_dispersion = ret_df.std(axis=1)
+
+    # 현재 분산의 퍼센타일 위치
+    historical = daily_dispersion.iloc[:-1] if len(daily_dispersion) > 1 else daily_dispersion
+    rank = float((historical < current_dispersion).sum()) / max(len(historical), 1)
+
+    return float(np.clip(rank, 0, 1))
 
 
 def _high_low_ratio(close: pd.DataFrame, window: int = 252) -> float:
@@ -134,18 +175,12 @@ def calculate_breadth_score(close: pd.DataFrame, config: dict = None) -> dict:
         "score": above_score,
     })
 
-    # 2) RSP/SPY Breadth
-    rsp_score = _rsp_spy_breadth(close)
-    if "RSP" in close.columns and "SPY" in close.columns:
-        _ratio = (close["RSP"] / close["SPY"]).dropna()
-        _rsp_change = _ratio.iloc[-1] / _ratio.iloc[-20] - 1 if len(_ratio) > 20 else 0.0
-        rsp_val = f"20일 변화: {_rsp_change:+.2%}"
-    else:
-        rsp_val = "데이터 없음"
+    # 2) 섹터 분산 지수 (RSP/SPY 교체)
+    disp_score = _sector_dispersion(close)
     components.append({
-        "name": "RSP/SPY 시장폭",
-        "value": rsp_val,
-        "score": rsp_score,
+        "name": "섹터 분산 지수",
+        "value": f"퍼센타일: {disp_score:.0%}",
+        "score": disp_score,
     })
 
     # 3) High/Low ratio
@@ -174,9 +209,9 @@ def calculate_breadth_score(close: pd.DataFrame, config: dict = None) -> dict:
         "score": mc_score,
     })
 
-    # 가중 평균
-    weights = [0.30, 0.25, 0.20, 0.25]
-    scores = [above_score, rsp_score, hl_score, mc_score]
+    # 가중 평균: 200MA(25%) + 섹터분산(30%) + 52주고저(20%) + McClellan(25%)
+    weights = [0.25, 0.30, 0.20, 0.25]
+    scores = [above_score, disp_score, hl_score, mc_score]
     final_score = sum(s * w for s, w in zip(scores, weights))
 
     return {

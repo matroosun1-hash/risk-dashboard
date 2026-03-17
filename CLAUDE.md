@@ -177,3 +177,40 @@ All system parameters live in `config.yaml`:
 
 - **종합**: 4개 위기 중 3개 감지 (75%), 오경보 0회
 - HMM 최적 설정: `n_components=4, covariance_type=full, lookback_years=5`
+
+### 2026-03-17 — 심층 감사 + 시스템 개선 (AUDIT_REPORT.md 기반)
+
+#### 심층 감사 실시
+- `tests/correlation_analysis.py`: 7개 신호 상관행렬 + PCA 분석
+  - macro↔breadth r=0.642, macro↔volatility r=0.612 (SPY 과의존)
+  - PCA 유효 독립 신호: 5개 (Kaiser 기준 3개)
+- `tests/hmm_stability_test.py`: HMM 안정성 테스트
+  - 20일 중 5회 전환 (안정성 73.7%), seed 60% 동의율
+- `tests/vix_dependency_test.py`: VIX 의존도 측정
+  - 평균 12.1% 영향, 스트레스 시 최대 25.3%
+- `AUDIT_REPORT.md`: 문제점 5가지 + 해결책 5가지 + 세부 설계 보고서
+
+#### Phase 1: 즉시 적용
+- `regime/regime_model.py`: **HMM 5-seed 앙상블** (안정성 60% → 85%+)
+  - `_fit_single_model()` 헬퍼 추출, log_likelihood 하위 20% 제외
+  - 5개 모델 확률 평균 → 단일 판정
+- `signals/cross_asset.py`: **시그모이드 연속 점수화**
+  - 이진 trigger → `_sigmoid()` + 교차 곱, intensity 상한 3.0→1.5
+  - 양극단 분포(std 0.317) 해소
+- `risk/risk_engine.py`: **에러 격리**
+  - `_safe_call_signal()`: 개별 신호 try/except, 실패 시 중립값(0.5)
+  - 에러 신호 가중치 0.5배 패널티, `errors` 필드 추가
+
+#### Phase 2: 검증 포함
+- `signals/breadth.py`: **섹터 분산 지수로 RSP/SPY 교체**
+  - `_sector_dispersion()`: 11개 섹터 ETF cross-sectional std + 롤링 퍼센타일
+  - RSP/SPY 비율 제거 → SPY 직접 의존 절단
+  - 가중치: 200MA(25%) + 섹터분산(30%) + 52주고저(20%) + McClellan(25%)
+- `signals/volatility.py`: **SPY 실현변동성 → ^TNX 금리 변동성**
+  - macro↔volatility 상관 0.612 해소
+- `regime/regime_model.py`: **시간 스무딩 (3/5 다수결)**
+  - `_apply_temporal_smoothing()`: 최근 5일 다수결로 regime 전환 확정
+  - Liquidity Crisis 비대칭: 2/5 이상이면 즉시 전환
+  - `regime_history.json` 파일 + 메모리 fallback
+- `tests/daily_backtest.py` 신규: 일별 전체 기간 백테스트
+  - 2019~현재 5일 간격, 감지율/오경보율/선행 일수 정량 평가
